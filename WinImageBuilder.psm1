@@ -1639,7 +1639,7 @@ function New-WindowsCloudImage {
     try {
         $windowsImageConfig = Get-WindowsImageConfig -ConfigFilePath $ConfigFilePath
         $mountedWindowsIso = $null
-        if ($windowsImageConfig.wim_file_path.EndsWith('.iso')) {
+        if ($windowsImageConfig.wim_file_path.toLower().EndsWith('.iso')) {
             $windowsImageConfig.wim_file_path = Get-Command $windowsImageConfig.wim_file_path `
                 -ErrorAction Ignore | Select-Object -ExpandProperty Source
             if($windowsImageConfig.wim_file_path -eq $null){
