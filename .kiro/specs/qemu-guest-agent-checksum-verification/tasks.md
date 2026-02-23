@@ -163,8 +163,8 @@ The implementation follows a priority-based configuration system where a new `[v
     - Test installation skipped when Install=false
     - _Requirements: 5.1, 5.2, 5.4_
 
-- [ ] 7. Update all callers of Download-QemuGuestAgent
-  - [-] 7.1 Find and update all function calls
+- [x] 7. Update all callers of Download-QemuGuestAgent
+  - [x] 7.1 Find and update all function calls
     - Search for all calls to Download-QemuGuestAgent in WinImageBuilder.psm1
     - Change from passing $config.install_qemu_ga to passing $config
     - Verify all callers pass the full config hashtable
@@ -178,11 +178,11 @@ The implementation follows a priority-based configuration system where a new `[v
     - Test end-to-end with legacy False
     - _Requirements: 4.1, 4.2, 4.3, 4.4_
 
-- [ ] 8. Checkpoint - Ensure all tests pass
+- [x] 8. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 9. Add error handling and logging
-  - [ ] 9.1 Implement comprehensive error handling
+- [x] 9. Add error handling and logging
+  - [x] 9.1 Implement comprehensive error handling
     - Add error handling for invalid checksum format in config parsing
     - Add error handling for empty URL in Get-QemuGuestAgentConfig
     - Add error handling for invalid URL format
@@ -191,7 +191,7 @@ The implementation follows a priority-based configuration system where a new `[v
     - Ensure all error messages are descriptive and actionable
     - _Requirements: 6.1, 6.2, 6.3, 6.6_
   
-  - [ ] 9.2 Add comprehensive logging
+  - [x] 9.2 Add comprehensive logging
     - Log configuration source being used (new section vs legacy)
     - Log whether checksum verification will be performed
     - Log checksum verification success with hash value
@@ -210,8 +210,8 @@ The implementation follows a priority-based configuration system where a new `[v
     - Verify error messages are descriptive
     - _Requirements: 6.1, 6.2, 6.3, 6.6_
 
-- [ ] 10. Update documentation
-  - [ ] 10.1 Update README.md
+- [x] 10. Update documentation
+  - [x] 10.1 Update README.md
     - Add section explaining checksum verification feature
     - Include example configuration with new section
     - Explain how to obtain SHA256 checksums
@@ -219,13 +219,13 @@ The implementation follows a priority-based configuration system where a new `[v
     - Clarify backward compatibility
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
   
-  - [ ] 10.2 Update configuration example file
+  - [x] 10.2 Update configuration example file
     - Add commented example of [virtio_qemu_guest_agent] section to Examples/windows-image-config-example.ini
     - Include both url and checksum parameters
     - Add comments explaining each parameter
     - _Requirements: 7.1, 7.4_
   
-  - [ ] 10.3 Add inline code comments
+  - [x] 10.3 Add inline code comments
     - Add comment-based help for Get-FileSHA256Checksum
     - Add comment-based help for Test-FileChecksum
     - Add comment-based help for Get-QemuGuestAgentConfig
@@ -233,8 +233,8 @@ The implementation follows a priority-based configuration system where a new `[v
     - Add comments explaining checksum verification flow in Download-QemuGuestAgent
     - _Requirements: 7.2_
 
-- [ ] 11. Create test data generators for property-based tests
-  - [ ] 11.1 Implement test data generators
+- [x] 11. Create test data generators for property-based tests
+  - [x] 11.1 Implement test data generators
     - Create Generate-RandomUrl function
     - Create Generate-RandomChecksum function
     - Create Generate-RandomString function
@@ -252,7 +252,7 @@ The implementation follows a priority-based configuration system where a new `[v
     - Test Create-RandomTempFile creates valid files
     - Test Vary-Case produces varied case strings
 
-- [ ] 12. Final checkpoint - Ensure all tests pass
+- [x] 12. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes

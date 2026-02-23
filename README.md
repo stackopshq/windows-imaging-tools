@@ -95,6 +95,73 @@ the resulting VHDX is shrinked to a minimum size and converted to the required f
 You can find a PowerShell example to generate a raw OpenStack Ironic image that also works on KVM<br/>
 in `Examples/create-windows-online-cloud-image.ps1`
 
+## QEMU Guest Agent Checksum Verification
+
+The Windows OpenStack Imaging Tools support optional SHA256 checksum verification for QEMU Guest Agent downloads, enhancing security by ensuring file integrity.
+
+### Configuration
+
+You can configure QEMU Guest Agent installation using either the new `[virtio_qemu_guest_agent]` section or the legacy `install_qemu_ga` parameter in the `[custom]` section.
+
+#### New Configuration Section (Recommended)
+
+Add a `[virtio_qemu_guest_agent]` section to your configuration file:
+
+```ini
+[virtio_qemu_guest_agent]
+url = https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-qemu-ga/qemu-ga-win-100.0.0.0-3.el7ev/qemu-ga-x64.msi
+checksum = a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd
+```
+
+* `url`: The URL to download the QEMU Guest Agent MSI installer
+* `checksum`: (Optional) The SHA256 checksum of the MSI file (64-character hexadecimal string)
+
+#### Legacy Configuration (Backward Compatible)
+
+The existing `install_qemu_ga` parameter in the `[custom]` section continues to work:
+
+```ini
+[custom]
+install_qemu_ga=True  # Uses default Fedora URL
+# OR
+install_qemu_ga=https://example.com/qemu-ga-x64.msi  # Uses custom URL
+```
+
+### Obtaining SHA256 Checksums
+
+To obtain the SHA256 checksum of a QEMU Guest Agent MSI file:
+
+**On Windows (PowerShell):**
+```powershell
+Get-FileHash -Path "qemu-ga-x64.msi" -Algorithm SHA256 | Select-Object -ExpandProperty Hash
+```
+
+**On Linux:**
+```bash
+sha256sum qemu-ga-x64.msi
+```
+
+### Security Benefits
+
+* **File Integrity**: Verifies that downloaded files have not been corrupted or tampered with
+* **Supply Chain Security**: Ensures you're installing the exact version you intended
+* **Mandatory Verification**: When a checksum is provided, verification is mandatory and failures prevent installation
+
+### Configuration Priority
+
+When both configuration methods are present, the priority order is:
+
+1. `[virtio_qemu_guest_agent]` section with `url` and optional `checksum` (highest priority)
+2. `install_qemu_ga` parameter in `[custom]` section (legacy, no checksum verification)
+
+### Backward Compatibility
+
+All existing configurations continue to work without modification:
+
+* Configurations without the `[virtio_qemu_guest_agent]` section behave exactly as before
+* Checksum verification is optional - you can specify a URL without a checksum
+* The `install_qemu_ga` parameter is fully supported for backward compatibility
+
 ## Frequently Asked Questions (FAQ)
 
 ### The image generation never stops

@@ -586,7 +586,7 @@ function Get-FileSHA256Checksum {
     )
     
     if (-not (Test-Path $FilePath)) {
-        throw "File not found: $FilePath"
+        throw "File not found for checksum computation: $FilePath. Ensure the file was downloaded successfully."
     }
     
     $sha256 = [System.Security.Cryptography.SHA256]::Create()
@@ -596,9 +596,16 @@ function Get-FileSHA256Checksum {
             $hashBytes = $sha256.ComputeHash($fileStream)
             $hashString = [System.BitConverter]::ToString($hashBytes) -replace '-', ''
             return $hashString.ToLower()
+        } catch {
+            throw "Failed to compute SHA256 checksum for ${FilePath}: $($_.Exception.Message). The file may be corrupted or inaccessible."
         } finally {
             $fileStream.Close()
         }
+    } catch {
+        if ($_.Exception.Message -match "Failed to compute SHA256") {
+            throw
+        }
+        throw "Failed to open file for checksum computation: ${FilePath}. Error: $($_.Exception.Message)"
     } finally {
         $sha256.Dispose()
     }
@@ -684,11 +691,16 @@ function Get-QemuGuestAgentConfig {
     
     # Check for new [virtio_qemu_guest_agent] section (highest priority)
     if ($Config.ContainsKey('url') -and -not [string]::IsNullOrWhiteSpace($Config['url'])) {
-        $url = $Config['url']
+        $url = $Config['url'].Trim()
+        
+        # Validate URL is not empty after trimming
+        if ([string]::IsNullOrWhiteSpace($url)) {
+            throw "URL parameter in [virtio_qemu_guest_agent] section cannot be empty. Please provide a valid URL or remove the parameter."
+        }
         
         # Validate URL format
         if ($url -notmatch '^https?://') {
-            throw "Invalid URL format: $url. URL must start with http:// or https://"
+            throw "Invalid URL format in [virtio_qemu_guest_agent] section: $url. URL must start with http:// or https://. Please correct the configuration file."
         }
         
         Write-Log "Using QEMU Guest Agent configuration from [virtio_qemu_guest_agent] section"
@@ -697,7 +709,8 @@ function Get-QemuGuestAgentConfig {
         $checksum = $null
         if ($Config.ContainsKey('checksum') -and -not [string]::IsNullOrWhiteSpace($Config['checksum'])) {
             $checksum = $Config['checksum']
-            Write-Log "Checksum: $checksum"
+            Write-Log "Checksum provided: $checksum"
+            Write-Log "Checksum verification will be performed after download"
         } else {
             Write-Log "No checksum provided, verification will be skipped"
         }
@@ -711,7 +724,7 @@ function Get-QemuGuestAgentConfig {
     
     # Warn if checksum provided without URL
     if ($Config.ContainsKey('checksum') -and -not [string]::IsNullOrWhiteSpace($Config['checksum'])) {
-        Write-Log "WARNING: Checksum provided in [virtio_qemu_guest_agent] section but no URL specified. Checksum will be ignored."
+        Write-Log "WARNING: Checksum provided in [virtio_qemu_guest_agent] section but no URL specified. Checksum will be ignored. Please add a 'url' parameter to enable checksum verification."
     }
     
     # Fall back to legacy install_qemu_ga parameter
@@ -741,11 +754,13 @@ function Get-QemuGuestAgentConfig {
             
             # Validate URL format
             if ($url -notmatch '^https?://') {
-                throw "Invalid URL format: $url. URL must start with http:// or https://"
+                throw "Invalid URL format in install_qemu_ga parameter: $url. URL must start with http:// or https://. Please correct the configuration file."
             }
             
-            Write-Log "Using custom URL: $url"
+            Write-Log "Using custom URL from install_qemu_ga: $url"
         }
+        
+        Write-Log "No checksum available for legacy configuration, verification will be skipped"
         
         return @{
             "Url" = $url
@@ -795,7 +810,11 @@ function Download-QemuGuestAgent {
     )
 
     # Resolve configuration using priority system
-    $qemuConfig = Get-QemuGuestAgentConfig -Config $Config -OsArch $OsArch
+    try {
+        $qemuConfig = Get-QemuGuestAgentConfig -Config $Config -OsArch $OsArch
+    } catch {
+        throw "Failed to resolve QEMU Guest Agent configuration: $($_.Exception.Message)"
+    }
     
     if (-not $qemuConfig.Install) {
         Write-Log "QEMU Guest Agent installation is disabled"
@@ -807,19 +826,32 @@ function Download-QemuGuestAgent {
     
     Write-Log "Downloading QEMU guest agent installer from ${url} ..."
     if ($checksum) {
-        Write-Log "Checksum verification will be performed: $checksum"
+        Write-Log "Checksum verification will be performed after download"
+        Write-Log "Expected checksum: $checksum"
     } else {
         Write-Log "No checksum provided, skipping verification"
     }
     
     $dst = Join-Path $ResourcesDir "qemu-ga.msi"
-    Execute-Retry {
-        (New-Object System.Net.WebClient).DownloadFile($url, $dst)
+    
+    try {
+        Execute-Retry {
+            (New-Object System.Net.WebClient).DownloadFile($url, $dst)
+        }
+    } catch {
+        throw "Failed to download QEMU Guest Agent from ${url}: $($_.Exception.Message). Please check network connectivity and URL accessibility."
     }
+    
+    Write-Log "Download completed successfully: $dst"
     
     # Perform checksum verification if checksum was provided
     if ($checksum) {
-        Test-FileChecksum -FilePath $dst -ExpectedChecksum $checksum
+        try {
+            Test-FileChecksum -FilePath $dst -ExpectedChecksum $checksum
+            Write-Log "QEMU Guest Agent installer verified successfully"
+        } catch {
+            throw "Checksum verification failed: $($_.Exception.Message). The downloaded file may be corrupted or tampered with."
+        }
     }
     
     Write-Log "QEMU guest agent installer path is: $dst"
