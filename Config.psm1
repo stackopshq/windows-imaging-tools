@@ -112,6 +112,16 @@ function Get-AvailableConfigOptions {
         @{"Name" = "virtio_base_path"; "GroupName" = "drivers";
           "Description" = "The location where the VirtIO drivers are found.
                            For example, the location of a mounted VirtIO ISO. VirtIO versions supported >=0.1.6.x"},
+        @{"Name" = "url"; "GroupName" = "virtio_qemu_guest_agent";
+          "Description" = "The URL to download the QEMU Guest Agent MSI installer.
+                           If specified, this takes priority over the install_qemu_ga parameter.
+                           Example: https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-qemu-ga/qemu-ga-win-100.0.0.0-3.el7ev/qemu-ga-x64.msi"},
+        @{"Name" = "checksum"; "GroupName" = "virtio_qemu_guest_agent";
+          "Description" = "The SHA256 checksum of the QEMU Guest Agent MSI installer.
+                           Must be a 64-character hexadecimal string.
+                           If specified, the downloaded file will be verified against this checksum.
+                           If verification fails, the installation will be aborted.
+                           Example: a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd"},
         @{"Name" = "install_qemu_ga"; "GroupName" = "custom";"DefaultValue" = "False";
           "Description" = "Installs QEMU guest agent services from the Fedora VirtIO website.
                            Defaults to 'False' (no installation will be performed).
@@ -253,6 +263,15 @@ function Get-WindowsImageConfig {
         }
         $winImageConfig += @{$availableConfigOption['Name'] = $value}
     }
+    
+    # Validate checksum format if provided
+    if ($winImageConfig['checksum'] -and $winImageConfig['checksum'] -ne "") {
+        if ($winImageConfig['checksum'] -notmatch '^[a-fA-F0-9]{64}$') {
+            throw ("Invalid checksum format for [virtio_qemu_guest_agent] checksum parameter. " +
+                   "Expected 64-character hexadecimal string, got: {0}" -f $winImageConfig['checksum'])
+        }
+    }
+    
     return $winImageConfig
 }
 function Set-IniComment {

@@ -564,31 +564,264 @@ function Download-CloudbaseInit {
     }
 }
 
-function Download-QemuGuestAgent {
+function Get-FileSHA256Checksum {
+    <#
+    .SYNOPSIS
+     Computes the SHA256 checksum of a file.
+    .DESCRIPTION
+     This function computes the SHA256 hash of a file using the .NET Framework's
+     System.Security.Cryptography.SHA256 class. The hash is returned as a lowercase
+     hexadecimal string. The function uses FileStream for memory-efficient reading
+     of large files.
+    .PARAMETER FilePath
+     The path to the file for which to compute the checksum.
+    .OUTPUTS
+     A 64-character lowercase hexadecimal string representing the SHA256 hash.
+    .EXAMPLE
+     Get-FileSHA256Checksum -FilePath "C:\path\to\file.msi"
+    #>
     Param(
         [Parameter(Mandatory=$true)]
-        [string]$QemuGuestAgentConfig,
+        [string]$FilePath
+    )
+    
+    if (-not (Test-Path $FilePath)) {
+        throw "File not found: $FilePath"
+    }
+    
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $fileStream = [System.IO.File]::OpenRead($FilePath)
+        try {
+            $hashBytes = $sha256.ComputeHash($fileStream)
+            $hashString = [System.BitConverter]::ToString($hashBytes) -replace '-', ''
+            return $hashString.ToLower()
+        } finally {
+            $fileStream.Close()
+        }
+    } finally {
+        $sha256.Dispose()
+    }
+}
+
+function Test-FileChecksum {
+    <#
+    .SYNOPSIS
+     Verifies that a file's SHA256 checksum matches an expected value.
+    .DESCRIPTION
+     This function computes the SHA256 checksum of a file and compares it to an
+     expected checksum value. The comparison is case-insensitive. If the checksums
+     do not match, the file is deleted and an exception is thrown. If they match,
+     a success message is logged.
+    .PARAMETER FilePath
+     The path to the file to verify.
+    .PARAMETER ExpectedChecksum
+     The expected SHA256 checksum as a 64-character hexadecimal string.
+     Case-insensitive.
+    .EXAMPLE
+     Test-FileChecksum -FilePath "C:\path\to\file.msi" -ExpectedChecksum "a1b2c3d4..."
+    #>
+    Param(
+        [Parameter(Mandatory=$true)]
+        [string]$FilePath,
+        [Parameter(Mandatory=$true)]
+        [string]$ExpectedChecksum
+    )
+    
+    Write-Log "Verifying checksum for file: $FilePath"
+    $actualChecksum = Get-FileSHA256Checksum -FilePath $FilePath
+    $expectedLower = $ExpectedChecksum.ToLower()
+    
+    if ($actualChecksum -ne $expectedLower) {
+        Write-Log "Checksum verification failed!"
+        Write-Log "Expected: $expectedLower"
+        Write-Log "Actual:   $actualChecksum"
+        
+        # Delete the file with failed verification
+        Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
+        
+        throw ("Checksum verification failed for {0}. Expected: {1}, Actual: {2}" -f `
+               $FilePath, $expectedLower, $actualChecksum)
+    }
+    
+    Write-Log "Checksum verification successful: $actualChecksum"
+}
+
+function Get-QemuGuestAgentConfig {
+    <#
+    .SYNOPSIS
+     Resolves QEMU Guest Agent configuration using priority-based system.
+    .DESCRIPTION
+     This function implements priority-based configuration resolution for QEMU Guest Agent
+     installation. It checks for the [virtio_qemu_guest_agent] section first (highest priority),
+     then falls back to the legacy install_qemu_ga parameter. The function validates URL format
+     and warns if a checksum is provided without a URL.
+     
+     Priority order:
+     1. [virtio_qemu_guest_agent] section with url parameter
+     2. install_qemu_ga parameter (legacy)
+     
+     The function returns a hashtable with Url, Checksum, and Install keys.
+    .PARAMETER Config
+     The configuration hashtable containing all parsed configuration options.
+    .PARAMETER OsArch
+     The operating system architecture (e.g., "AMD64" or "x86").
+    .OUTPUTS
+     A hashtable with the following keys:
+     - Url: The download URL (string or $null)
+     - Checksum: The SHA256 checksum (string or $null)
+     - Install: Whether to install QEMU Guest Agent (boolean)
+    .EXAMPLE
+     $config = Get-WindowsImageConfig -ConfigFilePath "config.ini"
+     $qemuConfig = Get-QemuGuestAgentConfig -Config $config -OsArch "AMD64"
+    #>
+    Param(
+        [Parameter(Mandatory=$true)]
+        [hashtable]$Config,
+        [Parameter(Mandatory=$true)]
+        [string]$OsArch
+    )
+    
+    # Check for new [virtio_qemu_guest_agent] section (highest priority)
+    if ($Config.ContainsKey('url') -and -not [string]::IsNullOrWhiteSpace($Config['url'])) {
+        $url = $Config['url']
+        
+        # Validate URL format
+        if ($url -notmatch '^https?://') {
+            throw "Invalid URL format: $url. URL must start with http:// or https://"
+        }
+        
+        Write-Log "Using QEMU Guest Agent configuration from [virtio_qemu_guest_agent] section"
+        Write-Log "URL: $url"
+        
+        $checksum = $null
+        if ($Config.ContainsKey('checksum') -and -not [string]::IsNullOrWhiteSpace($Config['checksum'])) {
+            $checksum = $Config['checksum']
+            Write-Log "Checksum: $checksum"
+        } else {
+            Write-Log "No checksum provided, verification will be skipped"
+        }
+        
+        return @{
+            "Url" = $url
+            "Checksum" = $checksum
+            "Install" = $true
+        }
+    }
+    
+    # Warn if checksum provided without URL
+    if ($Config.ContainsKey('checksum') -and -not [string]::IsNullOrWhiteSpace($Config['checksum'])) {
+        Write-Log "WARNING: Checksum provided in [virtio_qemu_guest_agent] section but no URL specified. Checksum will be ignored."
+    }
+    
+    # Fall back to legacy install_qemu_ga parameter
+    if ($Config.ContainsKey('install_qemu_ga') -and -not [string]::IsNullOrWhiteSpace($Config['install_qemu_ga'])) {
+        $installQemuGa = $Config['install_qemu_ga']
+        
+        if ($installQemuGa -eq 'False') {
+            Write-Log "QEMU Guest Agent installation is disabled (install_qemu_ga=False)"
+            return @{
+                "Url" = $null
+                "Checksum" = $null
+                "Install" = $false
+            }
+        }
+        
+        Write-Log "Using legacy QEMU Guest Agent configuration (install_qemu_ga parameter)"
+        
+        # If 'True', generate default Fedora URL
+        if ($installQemuGa -eq 'True') {
+            $arch = if ($OsArch -eq "AMD64") { "x64" } else { "x86" }
+            $url = "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads" + `
+                   "/archive-qemu-ga/qemu-ga-win-100.0.0.0-3.el7ev/qemu-ga-{0}.msi" -f $arch
+            Write-Log "Using default Fedora URL: $url"
+        } else {
+            # Custom URL provided
+            $url = $installQemuGa
+            
+            # Validate URL format
+            if ($url -notmatch '^https?://') {
+                throw "Invalid URL format: $url. URL must start with http:// or https://"
+            }
+            
+            Write-Log "Using custom URL: $url"
+        }
+        
+        return @{
+            "Url" = $url
+            "Checksum" = $null
+            "Install" = $true
+        }
+    }
+    
+    # No configuration found, skip installation
+    Write-Log "No QEMU Guest Agent configuration found, installation will be skipped"
+    return @{
+        "Url" = $null
+        "Checksum" = $null
+        "Install" = $false
+    }
+}
+
+function Download-QemuGuestAgent {
+    <#
+    .SYNOPSIS
+    Downloads the QEMU Guest Agent installer with optional checksum verification.
+    
+    .DESCRIPTION
+    Downloads the QEMU Guest Agent MSI installer from a configured URL. Supports both
+    the new [virtio_qemu_guest_agent] configuration section with optional SHA256 checksum
+    verification and the legacy install_qemu_ga parameter for backward compatibility.
+    
+    .PARAMETER Config
+    The full configuration hashtable containing all configuration parameters.
+    
+    .PARAMETER ResourcesDir
+    The directory where the downloaded installer will be saved.
+    
+    .PARAMETER OsArch
+    The operating system architecture (AMD64 or x86).
+    
+    .EXAMPLE
+    Download-QemuGuestAgent -Config $config -ResourcesDir "C:\Resources" -OsArch "AMD64"
+    #>
+    Param(
+        [Parameter(Mandatory=$true)]
+        [hashtable]$Config,
         [Parameter(Mandatory=$true)]
         [string]$ResourcesDir,
         [Parameter(Mandatory=$true)]
         [string]$OsArch
     )
 
-    $QemuGuestAgentUrl = $QemuGuestAgentConfig
-    if ($QemuGuestAgentConfig -eq 'True') {
-        $arch = "x86"
-        if ($OsArch -eq "AMD64") {
-            $arch = "x64"
-        }
-        $QemuGuestAgentUrl = "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads" + `
-                             "/archive-qemu-ga/qemu-ga-win-100.0.0.0-3.el7ev/qemu-ga-{0}.msi" -f $arch
+    # Resolve configuration using priority system
+    $qemuConfig = Get-QemuGuestAgentConfig -Config $Config -OsArch $OsArch
+    
+    if (-not $qemuConfig.Install) {
+        Write-Log "QEMU Guest Agent installation is disabled"
+        return
     }
-
-    Write-Log "Downloading QEMU guest agent installer from ${QemuGuestAgentUrl} ..."
+    
+    $url = $qemuConfig.Url
+    $checksum = $qemuConfig.Checksum
+    
+    Write-Log "Downloading QEMU guest agent installer from ${url} ..."
+    if ($checksum) {
+        Write-Log "Checksum verification will be performed: $checksum"
+    } else {
+        Write-Log "No checksum provided, skipping verification"
+    }
+    
     $dst = Join-Path $ResourcesDir "qemu-ga.msi"
     Execute-Retry {
-        (New-Object System.Net.WebClient).DownloadFile($QemuGuestAgentUrl, $dst)
+        (New-Object System.Net.WebClient).DownloadFile($url, $dst)
     }
+    
+    # Perform checksum verification if checksum was provided
+    if ($checksum) {
+        Test-FileChecksum -FilePath $dst -ExpectedChecksum $checksum
+    }
+    
     Write-Log "QEMU guest agent installer path is: $dst"
 }
 
@@ -1712,7 +1945,7 @@ function New-WindowsCloudImage {
                 Download-ZapFree $resourcesDir ([string]$image.ImageArchitecture)
             }
             if ($windowsImageConfig.install_qemu_ga -and $windowsImageConfig.install_qemu_ga -ne 'False') {
-                Download-QemuGuestAgent -QemuGuestAgentConfig $windowsImageConfig.install_qemu_ga `
+                Download-QemuGuestAgent -Config $windowsImageConfig `
                     -ResourcesDir $resourcesDir -OsArch ([string]$image.ImageArchitecture)
             }
             Download-CloudbaseInit -resourcesDir $resourcesDir -osArch ([string]$image.ImageArchitecture) `
@@ -1893,7 +2126,7 @@ function New-WindowsFromGoldenImage {
             Download-ZapFree $resourcesDir $imageInfo.imageArchitecture
         }
         if ($windowsImageConfig.install_qemu_ga -and $windowsImageConfig.install_qemu_ga -ne 'False') {
-            Download-QemuGuestAgent -QemuGuestAgentConfig $windowsImageConfig.install_qemu_ga `
+            Download-QemuGuestAgent -Config $windowsImageConfig `
                 -ResourcesDir $resourcesDir -OsArch $imageInfo.imageArchitecture
         }
         Download-CloudbaseInit -resourcesDir $resourcesDir -osArch $imageInfo.imageArchitecture `
