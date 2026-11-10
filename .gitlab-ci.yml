@@ -1,0 +1,38 @@
+# Merge request checks on GitLab, where the code now lives (moved from Gitea on
+# 2026-11-10). GitHub stays a public mirror pushed from here, and publishing
+# (releases, registries) stays on GitHub Actions there: this pipeline only
+# checks, and never publishes.
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    # No branch pipeline on top of an MR pipeline for the same commit.
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
+stages:
+  - verify
+
+default:
+  tags: [linux]
+  interruptible: true
+  timeout: 20m
+
+# PSScriptAnalyzer runs on PowerShell for Linux. The Pester tests need Windows
+# and stay on GitHub Actions (windows-2019 runners).
+script-analyzer:
+  stage: verify
+  image: mcr.microsoft.com/powershell:7.4-ubuntu-22.04
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+  script:
+    - |
+      pwsh -NoProfile -Command '
+        $ErrorActionPreference = "Stop"
+        Install-Module -Force -AllowClobber -Scope CurrentUser PSScriptAnalyzer
+        $rules = @("PSProvideCommentHelp","PSUseDeclaredVarsMoreThanAssignments","PSAvoidUsingEmptyCatchBlock","PSAvoidUsingCmdletAliases","PSAvoidDefaultValueForMandatoryParameter","PSAvoidDefaultValueSwitchParameter","PSUseToExportFieldsInManifest","PSAvoidUsingPositionalParameters")
+        $res = Invoke-ScriptAnalyzer -Path . -Recurse -IncludeRule $rules
+        if ($res.Count -gt 0) { $res | Format-Table -AutoSize | Out-String | Write-Output; throw "$($res.Count) style warnings found" }
+      '
