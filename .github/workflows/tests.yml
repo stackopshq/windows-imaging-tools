@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 jobs:
   code_checks:
-    runs-on: windows-2019
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
         with:
@@ -22,7 +22,7 @@ jobs:
             throw "$($resScryptAnalyzer.Count) failed style warnings found."
           }
   functional_tests_2019:
-    runs-on: windows-2019
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
         with:
